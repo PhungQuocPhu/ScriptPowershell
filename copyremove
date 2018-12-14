@@ -1,0 +1,305 @@
+########################################################
+# Name: CompressingCopy.ps1                              
+# Creator: Phu@soxes.ch         
+# Date: 24.04.2018
+#######################################################
+
+#Variables
+
+
+#$Destination="\\185.35.137.224\backupwebserver\database\"
+$Log="C:\ForIT\Backup\backupdatabase.log" #Log Name
+$Pwcompress=""
+$LoggingLevel="1" #LoggingLevel only for Output in Powershell Window, 1=smart, 3=Heavy
+
+# Keep old files 1 days and script running on Sunday
+$keepdays= 1
+#Extension files needed to check
+$extension=".bak"
+
+
+Function _create_folder($__pathcreate){    
+
+    #Check folder if have don't create. If not, create folder
+	if( -Not (Test-Path -Path $__pathcreate ) )
+	{
+		New-Item -ItemType directory -Path $__pathcreate
+		Logging "INFO" "--------------------"
+		Logging "INF" "Created folder for path copy backup files"
+	}
+
+}
+
+Function Logging($State, $Message){
+    $Datum=Get-Date -format dd.MM.yyyy-HH:mm:ss
+
+    if (!(Test-Path -Path $Log)) {
+        New-Item -Path $Log -ItemType File | Out-Null
+    }
+    $Text="$Datum - $State"+":"+" $Message"
+
+    if ($LoggingLevel -eq "1" -and $Message -notmatch "was copied") {Write-Host $Text}
+    elseif ($LoggingLevel -eq "3" -and $Message -match "was copied") {Write-Host $Text}
+   
+    add-Content -Path $Log -Value $Text
+}
+
+Function search_file($Psearch){
+    
+    #$Dir = get-childitem $folder -recurse
+    $Dir = Get-ChildItem -Path $Psearch -Recurse    
+    return $Dir
+
+}
+
+Function compress7zip($Pcompress){
+
+    if (-not (Test-Path "$env:ProgramFiles\7-Zip\7z.exe"))  {
+        Logging "Error" "$env:ProgramFiles\7-Zip\7z.exe needed"
+    } 
+    else{
+        Logging "INFO" "Start Compress $Pcompress"
+        $target= $Pcompress -replace ".bak",".7z"
+        $sz = ("$env:ProgramFiles\7-Zip\7z.exe")                        
+         & $sz "a" "-t7z" "$target" "$Pcompress" "-p$Pwcompress"
+        }       
+}
+
+Function _compress7z($_source,$_distination,$_pass){
+
+    if (-not (Test-Path "$env:ProgramFiles\7-Zip\7z.exe"))  {
+        Logging "Error" "$env:ProgramFiles\7-Zip\7z.exe needed"
+    } 
+    else{          
+            $sz = ("$env:ProgramFiles\7-Zip\7z.exe")                        
+             & $sz "a" "-t7z" "$_distination" "$_source" "-p$_pass"
+        }       
+}
+
+Function _move_files ($__source, $__distination){
+    Move-Item -Path $__source -Destination $__distination
+    Logging "INFO" "--------------------"
+    Logging "INF" "Move done"
+}
+
+#---------------- Function Find and Compress files -------------------#
+# We 1 parameters is:
+#      1. __pathFound: Path for the find 
+#---------------------------------------------------------------------#
+
+Function _find_compress($__pathFound){
+
+    #String date:
+    #$StringDate = (Get-Date -format yyyy-MM-dd) -replace "-","_"
+    #$filesname = $PathCompress+"\"+$FilenameCompress+"_"+$StringDate+"*.bak"
+    #Search files
+    $result_searching= search_file "$__pathFound"
+    #Compress files
+    foreach ($fcompress in $result_searching){
+        $_source = $fcompress.FullName
+        $_dist = $_source -replace ".bak",".7z"
+
+        _compress7z "$_source" "$_dist" "$Pwcompress"
+
+    }
+
+}
+
+#copyfilescompresstobackup
+Function Find_copy{     
+    Logging "INFO" "Start the Copy"
+    #Get number week of year
+    $Numberweekofyear=get-date -UFormat %V
+    $StringDate = (Get-Date -format yyyy-MM-dd) -replace "-","_"
+    $filesname = $PathCompress+"\"+$FilenameCompress+"_"+$StringDate+"*.7z"
+    #Search files
+    $result_searching= search_file "$filesname"
+    foreach ($files in $result_searching) {    
+       $fullpath= $files.FullName;    
+       $Pathcopy= $Destination+"week"+ $Numberweekofyear      
+       Copy-Item -Path $fullpath -Destination $Pathcopy -Force -ErrorAction SilentlyContinue
+       Logging "INFO" "Copy to $Pathcopy"
+
+    }
+    Logging "INFO" "Copy is done"
+}
+
+#deletefilescompress $PathCompress
+Function Remove_7zFile{
+
+    $pathremove=$PathCompress+"\*.7z"
+    Remove-Item $pathremove
+    Logging "INFO" "Have deleted files *.7z"
+}
+# Fundion Delete files with parameters is __pathfiles
+Function _delete_files($__pathfiles){
+    Remove-Item $__pathfiles
+    Logging "INFO" "Already deleted: $__pathfiles"
+}
+
+function keepoldfiles ([string]$_dircheck, [string] $_extn, [int] $_keepday){
+
+    foreach ($__files in Get-ChildItem -Path $_dircheck -Recurse -File ) {
+        $__extn = [IO.Path]::GetExtension($__files)
+        if ($__extn -eq $_extn){            
+            $d = ((Get-Date) - $__files.CreationTime).Days            
+            if ($d -ge $_keepday){
+                "....delete old files"
+                #Remove-Item -Path $__files.FullName
+            }
+        }
+    }
+}
+function _copysourcode($_path_web){
+
+    $_web_upload = "$_path_web\web\wwwroot\upload"
+    $_web_log = "$_path_web\web\App_Data\Logs"
+    $_jobs_bouns_log = "$_path_web\jobs\Bonus\Logs"
+    $_jobs_mailing_log = "$_path_web\jobs\Mailing\Logs"
+    $_jobs_payment_log = "$_path_web\jobs\Payment\Logs"
+    $_jobs_payout_log = "$_path_web\jobs\Payout\Logs"
+    $_jobs_syscinfo_log = "$_path_web\jobs\SyncInfo\Logs"
+    $_jobs_withdrawalscheduler_log = "$_path_web\jobs\WithdrawalScheduler\Logs"
+
+    $_s_web_upload = "C:\Publish\auto_publish\web\wwwroot\upload"
+    $_s_web_log = "C:\Publish\auto_publish\web\App_Data\Logs"
+    $_s_jobs_bouns_log = "C:\Publish\auto_publish\jobs\Bonus\Logs"
+    $_s_jobs_mailing_log = "C:\Publish\auto_publish\jobs\Mailing\Logs"
+    $_s_jobs_payment_log = "C:\Publish\auto_publish\jobs\Payment\Logs"
+    $_s_jobs_payout_log = "C:\Publish\auto_publish\jobs\Payout\Logs"
+    $_s_jobs_syscinfo_log = "C:\Publish\auto_publish\jobs\SyncInfo\Logs"
+    $_s_jobs_withdrawalscheduler_log = "C:\Publish\auto_publish\jobs\WithdrawalScheduler\Logs"
+
+    New-Item $_web_upload -ItemType Directory
+    New-Item $_web_log -ItemType Directory
+    New-Item $_jobs_bouns_log -ItemType Directory
+    New-Item $_jobs_mailing_log -ItemType Directory
+    New-Item $_jobs_payment_log -ItemType Directory
+    New-Item $_jobs_payout_log -ItemType Directory
+    New-Item $_jobs_syscinfo_log -ItemType Directory
+    New-Item $_jobs_withdrawalscheduler_log -ItemType Directory
+
+    Copy-Item -Path "$_s_web_upload\*" -Destination "$_web_upload" -Recurse
+    Copy-Item -Path "$_s_web_log\*" -Destination "$_web_log" -Recurse
+    Copy-Item -Path "$_s_jobs_bouns_log\*" -Destination "$_jobs_bouns_log" -Recurse
+    Copy-Item -Path "$_s_jobs_mailing_log\*" -Destination "$_jobs_mailing_log" -Recurse
+    Copy-Item -Path "$_s_jobs_payment_log\*" -Destination "$_jobs_payment_log" -Recurse
+    Copy-Item -Path "$_s_jobs_payout_log\*" -Destination "$_jobs_payout_log" -Recurse
+    Copy-Item -Path "$_s_jobs_syscinfo_log\*" -Destination "$_jobs_syscinfo_log" -Recurse
+    Copy-Item -Path "$_s_jobs_withdrawalscheduler_log\*" -Destination "$_jobs_withdrawalscheduler_log" -Recurse
+}
+
+function _copyremote($__source,$__destination){
+
+    # Defin WinSCP
+    # Load WinSCP .NET assembly 
+    Add-Type -Path "C:\Program Files (x86)\WinSCP\WinSCPnet.dll"
+
+    $sessionOptions = New-Object WinSCP.SessionOptions
+    $sessionOptions.Protocol = [WinSCP.Protocol]::Sftp
+    $sessionOptions.HostName = "" 
+    $sessionOptions.UserName = "" 
+    $sessionOptions.Password = ""    
+    $sessionOptions.SshHostKeyFingerprint = ""
+
+    $session = New-Object WinSCP.Session
+    try{
+        #Connect
+            $session.Open($sessionOptions)
+        # Check directory Exists
+            if($session.FileExists($__destination))
+            {
+                Logging "INFO" "File $remotePath exists"
+                
+            }
+            else
+            {
+                $session.CreateDirectory("$__destination")
+            }
+        #Update files
+            $transferOptions = New-Object WinSCP.TransferOptions
+            $transferOptions.TransferMode = [WinSCP.TransferMode]::Binary
+ 
+            $transferResult = $session.PutFiles("$__source","$__destination",$False,$transferOptions)
+        # Throw on any error
+            $transferResult.Check()
+ 
+        # Print results
+            foreach ($transfer in $transferResult.Transfers)
+            {
+                Logging "INFO" "Upload of $($transfer.FileName) succeeded"
+            }
+
+    }
+    finally
+    {
+        # Disconnect, clean up
+        $session.Dispose()
+    }
+
+}
+
+#Create_folder
+
+#------------Begin to write log --------------#
+Logging "INFO" "----------------------"
+Logging "INFO" "Start the Script"
+
+#----------------------------Database backup ----------------------------#
+# Concept: 
+# - Step 1: Find files backup with extention is: *.bak
+# - Step 2: Compress files backup
+# - Step 3: Delete files *.back after comrpessed
+# - Step 4: Create folder with number week of year 
+# - Step 5: Move files compress to folder
+# - Step 6: Copy files backup to Storage box
+#------------------------------------------------------------------------#
+
+## Step 1 and Step 2: Find and Compress files backup
+#    #Stringdate: Define format data in name backup files
+#    $StringDate = (Get-Date -format yyyy-MM-dd) -replace "-","_"
+#    $_pathFound = "C:\ForIT\Backup\WeGoCryptoDb\WeGoCryptoDb_backup_$StringDate*.bak"
+#    _find_compress "$_pathFound"
+## Step 3: Delete file backup
+#    _delete_files "$_pathFound"
+## Step 4: Create folder week number
+#    # Define week number of year     
+#    $_numberweekofyear=get-date -UFormat %V        
+#    _create_folder "C:\ForIT\Backup\WeGoCryptoDb\week$_numberweekofyear"
+## Step 5: Move files to the folder
+#    _move_files "C:\ForIT\Backup\WeGoCryptoDb\WeGoCryptoDb_backup_$StringDate*.7z" "C:\ForIT\Backup\WeGoCryptoDb\week$_numberweekofyear"
+## Step 6: Copy files to Storage box     
+#    _copyremote "C:\ForIT\Backup\WeGoCryptoDb\week$_numberweekofyear\WeGoCryptoDb_backup_$StringDate*.7z" "Backups/database/week$_numberweekofyear/"
+#  
+##----------------------------THE END Database backup ----------------------------#
+#
+##----------------------------Source code backup ----------------------------#
+## Copy folder:
+##   C:\Publish\auto_publish\web\wwwroot\upload
+##   C:\Publish\auto_publish\web\App_Data\Logs
+##   C:\Publish\auto_publish\jobs\Bonus\Logs
+##   C:\Publish\auto_publish\jobs\Mailing\Logs
+##   C:\Publish\auto_publish\jobs\Payment\Logs
+##   C:\Publish\auto_publish\jobs\Payout\Logs
+##   C:\Publish\auto_publish\jobs\SyncInfo\Logs
+##   C:\Publish\auto_publish\jobs\WithdrawalScheduler\Logs
+#########################################################
+## Concept: 
+## - Step 1: Create folder to copy files 
+## - Step 2: Compress files backup
+## - Step 3: Delete folder
+## - Step 4: Copy files backup to Storage box
+## $Pwcompress=""
+##------------------------------------------------------------------------#
+#
+## Step 1: Create folder 
+$_path_bk_web = "C:\ForIT\Backup\WeGoCryptoSource\SourceWeb_backup-"+ (Get-Date -format yyyy-MM-dd)+ "-" +((Get-Date -Format HH:mm:ss) -replace ":","")
+_copysourcode "$_path_bk_web"
+## Step 2: Compress files backup
+$_passsource="4fnQU8HuQDk&2*f96kP3"
+_compress7z "$_path_bk_web" "$_path_bk_web.7z" "$_passsource" 
+## Step 3: Delte folder
+_delete_files "$_path_bk_web"
+
+# Step 4: Copy to storage 
+_copyremote "$_path_bk_web.7z" "Backups/sourceweb/"
